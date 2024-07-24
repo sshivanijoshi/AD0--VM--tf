@@ -1,0 +1,73 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+- group: variable_group
+
+stages:
+- stage: Plan
+  displayName: 'Terraform Plan'
+  jobs:
+  - job: TerraformPlan
+    displayName: 'Terraform Plan'
+    steps:
+    - script: |
+        mkdir -p $(System.DefaultWorkingDirectory)/VM_Terraform/terraform
+        cd "$(System.DefaultWorkingDirectory)/VM_Terraform/terraform"
+        terraform --version
+        terraform init -input=false 
+        terraform plan -no-color -var-file="./tfvars/VMHARSH002D.Pay-As-You-Go.tfvars" | tee tfplan
+      displayName: 'Terraform Init and Plan'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+
+    - script: |
+        cd "$(System.DefaultWorkingDirectory)/VM_Terraform/terraform"
+        tar -cvf tfplan.tar tfplan
+      displayName: "Prepare Plan & Raw Output as TAR to Publish"
+        
+    - publish: '$(System.DefaultWorkingDirectory)/VM_Terraform/terraform/tfplan.tar'
+      artifact: 'tfplan'
+      displayName: "Publish TF Plan Plain Text"
+
+- stage: Approval
+  displayName: 'Approval'
+  jobs:
+  - job: "Approval"
+    displayName: 'Terraform Approve Job'
+    cancelTimeoutInMinutes: 10
+    timeoutInMinutes: 30
+    pool: server
+    steps:
+      - task: ManualValidation@0
+        displayName: 'Manual Approval'
+        inputs:
+          notifyUsers: | 
+            user@abc.com
+          instructions: 'Deploy TF code?'
+
+
+- stage: Deploy
+  displayName: 'Terraform Apply'
+  dependsOn: Approval
+  jobs:
+  - job: TerraformApply
+    displayName: 'Terraform Apply'
+    steps:
+    - script: |
+        cd "$(System.DefaultWorkingDirectory)/VM_Terraform/terraform"
+        terraform --version
+        terraform init
+        terraform apply -auto-approve -var-file="./tfvars/VMHARSH002D.Pay-As-You-Go.tfvars"
+      displayName: 'Terraform Init and Apply'
+      env:
+        ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+        ARM_TENANT_ID: $(ARM_TENANT_ID)
+        ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
